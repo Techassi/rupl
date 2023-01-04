@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use rupl::{Command, EmptyLineBehaviour, Repl, Result};
+use rupl::{Command, Repl, Result};
 
 fn main() {
     fn hello<C>(args: HashMap<String, String>, ctx: &mut C) -> Result<Option<String>> {
@@ -12,7 +12,7 @@ fn main() {
         .with_welcome_message("This basic REPL says 'Hello, world!'")
         .with_exit_message("Exiting... Bye!")
         .with_default_commands()
-        .with_empty_line_behaviour(EmptyLineBehaviour::Ignore)
+        .ignore_empty_line(true)
         .with_output_prompt(Some("> "))
         .with_command(Command::new("hello", hello));
 

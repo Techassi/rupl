@@ -13,27 +13,12 @@ use rustyline::{error::ReadlineError, Editor};
 pub type RunFn<C, E> =
     fn(HashMap<String, String>, &mut C) -> std::result::Result<Option<String>, E>;
 
-#[derive(PartialEq)]
-pub enum EmptyLineBehaviour {
-    Ignore,
-    Pass,
-}
-
-impl From<String> for EmptyLineBehaviour {
-    fn from(value: String) -> Self {
-        match value.to_lowercase().as_str() {
-            "pass" => Self::Pass,
-            _ => Self::Ignore,
-        }
-    }
-}
-
 pub struct Repl<C, E>
 where
     E: Display + Into<Error>,
 {
-    empty_line_behaviour: EmptyLineBehaviour,
     commands: HashMap<String, Command<C, E>>,
+    ignore_empty_line: bool,
     welcome_message: String,
     output_prompt: String,
     exit_message: String,
@@ -48,12 +33,12 @@ where
 {
     pub fn new(context: C) -> Self {
         Self {
-            empty_line_behaviour: EmptyLineBehaviour::Ignore,
             version: String::from(env!("CARGO_PKG_VERSION")),
             welcome_message: String::new(),
             output_prompt: String::new(),
             exit_message: String::new(),
             prompt: String::from(">> "),
+            ignore_empty_line: true,
             commands: HashMap::new(),
             context,
         }
@@ -96,11 +81,8 @@ where
         self
     }
 
-    pub fn with_empty_line_behaviour<T>(&mut self, behaviour: T) -> &mut Self
-    where
-        T: Into<EmptyLineBehaviour>,
-    {
-        self.empty_line_behaviour = behaviour.into();
+    pub fn ignore_empty_line(&mut self, ignore: bool) -> &mut Self {
+        self.ignore_empty_line = ignore;
         self
     }
 
@@ -139,7 +121,7 @@ where
                 Ok(line) => {
                     let line = line.trim();
 
-                    if self.empty_line_behaviour == EmptyLineBehaviour::Ignore && line.is_empty() {
+                    if self.ignore_empty_line && line.is_empty() {
                         continue;
                     }
 
