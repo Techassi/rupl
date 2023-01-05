@@ -1,8 +1,8 @@
 use std::fmt::Display;
 
 use crate::{
-    error::{Error, Result},
-    parameter::Parameter,
+    error::{Error, ReplResult},
+    parameters::Parameter,
     RunFn,
 };
 
@@ -34,7 +34,7 @@ where
         }
     }
 
-    pub fn with_subcommand(&mut self, command: Command<C, E>) -> Result<&mut Self> {
+    pub fn with_subcommand(mut self, command: Command<C, E>) -> ReplResult<Self> {
         if self.parameters.len() > 0 {
             return Err(Error::IllegalSubcommandError);
         }
@@ -43,7 +43,7 @@ where
         Ok(self)
     }
 
-    pub fn with_param(&mut self, param: Parameter) -> Result<&mut Self> {
+    pub fn with_param(mut self, param: Parameter) -> ReplResult<Self> {
         if self.subcommands.len() > 0 {
             return Err(Error::IllegalParameterError);
         }
@@ -52,11 +52,19 @@ where
         Ok(self)
     }
 
-    pub fn with_help<T>(&mut self, help: T) -> &mut Self
+    pub fn with_help<T>(mut self, help: T) -> Self
     where
         T: Into<String>,
     {
         self.help = Some(help.into());
         self
+    }
+
+    pub(crate) fn has_params(&self) -> bool {
+        self.parameters.len() > 0
+    }
+
+    pub(crate) fn has_subcommands(&self) -> bool {
+        self.subcommands.len() > 0
     }
 }

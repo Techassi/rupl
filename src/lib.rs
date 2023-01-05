@@ -1,17 +1,16 @@
 mod command;
 mod error;
-mod parameter;
+mod parameters;
 
 pub use command::*;
 pub use error::*;
-pub use parameter::*;
+pub use parameters::*;
 
 use std::{collections::HashMap, fmt::Display};
 
 use rustyline::{error::ReadlineError, Editor};
 
-pub type RunFn<C, E> =
-    fn(HashMap<String, String>, &mut C) -> std::result::Result<Option<String>, E>;
+pub type RunFn<C, E> = fn(Parameters, &mut C) -> std::result::Result<Option<String>, E>;
 
 pub struct Repl<C, E>
 where
@@ -24,6 +23,7 @@ where
     exit_message: String,
     version: String,
     prompt: String,
+    use_builtins: bool,
     context: C,
 }
 
@@ -48,6 +48,7 @@ where
             prompt: String::from(">> "),
             ignore_empty_line: true,
             commands: HashMap::new(),
+            use_builtins: true,
             context,
         }
     }
@@ -220,7 +221,9 @@ where
     /// let mut repl = Repl::new(());
     /// repl.run();
     /// ```
+    pub fn run(&mut self) -> ReplResult<()> {
         let mut editor = Editor::<()>::new()?;
+        self.print_welcome_message();
 
         loop {
             let readline = editor.readline(&self.prompt);
@@ -233,7 +236,11 @@ where
                         continue;
                     }
 
-                    self.handle_command(line)?
+                    match self.handle_command(line) {
+                        Err(Error::ParameterError(err)) => self.handle_parameter_error(err),
+                        Err(err) => return Err(err),
+                        Ok(out) => self.handle_output(out),
+                    }
                 }
                 Err(ReadlineError::Interrupted) => {
                     #[cfg(debug_assertions)]
@@ -260,21 +267,67 @@ where
         Ok(())
     }
 
-    fn handle_command(&mut self, line: &str) -> Result<()> {
+    fn handle_command(&mut self, line: &str) -> ReplResult<Option<String>> {
         let (cmd, args) = match line.split_once(" ") {
             Some(parts) => parts,
             None => (line, ""),
         };
 
         match self.commands.get(cmd) {
-            Some(cmd) => match (cmd.run)(HashMap::new(), &mut self.context) {
-                Ok(Some(out)) => println!("{}{}", self.output_prompt, out),
-                Ok(None) => (),
-                Err(err) => return Err(err.into()),
-            },
-            None => (),
-        };
+            Some(cmd) => {
+                let mut params = Parameters::default();
 
-        Ok(())
+                if cmd.has_params() {
+                    params = match Parameters::new(args, cmd.parameters.clone()) {
+                        Ok(p) => p,
+                        Err(err) => return Err(err.into()), // TODO (Techassi): Make this configurable
+                    };
+                }
+
+                match (cmd.run)(params, &mut self.context) {
+                    Ok(Some(out)) => return Ok(Some(out)),
+                    Ok(None) => return Ok(None),
+                    Err(err) => return Err(err.into()),
+                }
+            }
+            None => {
+                if !self.use_builtins {
+                    return Err(Error::NoSuchCommandError(cmd.into()));
+                }
+
+                match cmd {
+                    "help" => self.handle_help_builtin(args),
+                    "version" => self.handle_version_builtin(),
+                    _ => return Err(Error::NoSuchCommandError(cmd.into())),
+                }
+            }
+        }
+    }
+
+    fn handle_output(&self, out: Option<String>) {
+        if out.is_some() {
+            println!("{}{}", self.output_prompt, out.unwrap());
+        }
+    }
+
+    fn handle_help_builtin<A>(&self, _args: A) -> ReplResult<Option<String>>
+    where
+        A: Into<String>,
+    {
+        Ok(Some(String::from("Help requested!")))
+    }
+
+    fn handle_version_builtin(&self) -> ReplResult<Option<String>> {
+        Ok(Some(self.version.clone()))
+    }
+
+    fn handle_parameter_error(&self, err: ParameterError) {
+        self.handle_output(Some(err.to_string()))
+    }
+
+    fn print_welcome_message(&self) {
+        if !self.welcome_message.is_empty() {
+            println!("{}", self.welcome_message)
+        }
     }
 }

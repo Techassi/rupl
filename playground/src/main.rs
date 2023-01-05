@@ -1,23 +1,39 @@
-use std::collections::HashMap;
+use rupl::{Command, Parameter, Parameters, Repl, ReplResult};
 
-use rupl::{Command, Repl, Result};
-
-fn main() {
-    fn hello<C>(args: HashMap<String, String>, ctx: &mut C) -> Result<Option<String>> {
-        Ok(Some(String::from("world")))
-    }
-
+fn main() -> ReplResult<()> {
     let mut repl = Repl::new(());
-    repl.with_prompt("# ")
+
+    repl.with_prompt(">>")
+        .with_version("1.0.1-rc2")
         .with_welcome_message("This basic REPL says 'Hello, world!'")
         .with_exit_message("Exiting... Bye!")
-        .with_default_commands()
+        .with_builtins(true)
         .ignore_empty_line(true)
-        .with_output_prompt(Some("> "))
-        .with_command(Command::new("hello", hello));
+        .with_output_prompt(Some(":> "))
+        .with_command(
+            Command::new("hello", hello)
+                .with_param(Parameter::new("name"))?
+                .with_param(Parameter::new("punctation"))?,
+        )
+        .with_command(
+            Command::new("service", service)
+                .with_subcommand(Command::new("status", service_status))?,
+        );
 
-    match repl.run() {
-        Ok(_) => (),
-        Err(err) => println!("{}", err),
-    }
+    repl.run()
+}
+
+fn hello(params: Parameters, _ctx: &mut ()) -> ReplResult<Option<String>> {
+    let name: String = params.get("name")?;
+    let punctation: String = params.get("punctation")?;
+
+    Ok(Some(format!("Hello, {}{}", name, punctation)))
+}
+
+fn service(params: Parameters, ctx: &mut ()) -> ReplResult<Option<String>> {
+    service_status(params, ctx)
+}
+
+fn service_status(_params: Parameters, _ctx: &mut ()) -> ReplResult<Option<String>> {
+    Ok(None)
 }
