@@ -2,9 +2,11 @@ use std::fmt::Display;
 
 use crate::{args::Arg, error::Error, RunFn};
 
+#[derive(Clone)]
 pub struct Command<C, E>
 where
-    E: Display + Into<Error>,
+    C: Clone,
+    E: Clone + Display + Into<Error>,
 {
     pub(crate) help: Option<String>,
     pub(crate) run: RunFn<C, E>,
@@ -14,7 +16,8 @@ where
 
 impl<C, E> Command<C, E>
 where
-    E: Display + Into<Error>,
+    C: Clone,
+    E: Clone + Display + Into<Error>,
 {
     pub fn new<T>(name: T, run: RunFn<C, E>) -> Self
     where
@@ -39,6 +42,10 @@ where
     {
         self.help = Some(help.into());
         self
+    }
+
+    pub fn name(&self) -> &String {
+        &self.name
     }
 
     pub(crate) fn has_args(&self) -> bool {

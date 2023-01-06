@@ -8,7 +8,7 @@ use lazy_static::lazy_static;
 use regex::Regex;
 use thiserror::Error;
 
-#[derive(Debug, Error)]
+#[derive(Clone, Debug, Error)]
 pub enum ArgError {
     #[error("Invalid arg count")]
     InvalidArgCount,
@@ -34,21 +34,21 @@ impl From<AddrParseError> for ArgError {
 
 #[derive(Debug, Clone)]
 pub struct Args {
-    params: HashMap<String, (usize, Arg)>,
+    args: HashMap<String, (usize, Arg)>,
     values: Vec<String>,
 }
 
 impl Default for Args {
     fn default() -> Self {
         Self {
-            params: Default::default(),
             values: Default::default(),
+            args: Default::default(),
         }
     }
 }
 
 impl Args {
-    pub fn new<T>(input: T, params: Vec<Arg>) -> Result<Self, ArgError>
+    pub fn new<T>(input: T, args: Vec<Arg>) -> Result<Self, ArgError>
     where
         T: Into<String>,
     {
@@ -63,30 +63,30 @@ impl Args {
             .map(|c| (c[1].to_string(), c[2].to_string()))
             .collect();
 
-        if params.len() != pairs.len() {
+        if args.len() != pairs.len() {
             return Err(ArgError::InvalidArgCount);
         }
 
-        let mut inner_params = HashMap::<String, (usize, Arg)>::new();
+        let mut inner_args = HashMap::<String, (usize, Arg)>::new();
         let mut values = Vec::new();
 
-        for (index, param) in params.iter().enumerate() {
+        for (index, arg) in args.iter().enumerate() {
             for pair in &pairs {
-                if param.name != pair.0 {
+                if arg.name != pair.0 {
                     continue;
                 }
 
-                inner_params.insert(param.name.clone(), (index, param.clone()));
+                inner_args.insert(arg.name.clone(), (index, arg.clone()));
                 values.push(pair.1.clone());
             }
         }
 
-        if params.len() != inner_params.len() {
+        if args.len() != inner_args.len() {
             return Err(ArgError::InvalidArgCount);
         }
 
         Ok(Self {
-            params: inner_params,
+            args: inner_args,
             values,
         })
     }
@@ -96,7 +96,7 @@ impl Args {
         T: ConvertFrom<String>,
         N: Into<String>,
     {
-        let (index, _) = match self.params.get(&name.into()) {
+        let (index, _) = match self.args.get(&name.into()) {
             Some(kv) => kv,
             None => return Err(ArgError::NoSuchArg),
         };
@@ -110,7 +110,7 @@ impl Args {
 
 #[derive(Debug, Clone)]
 pub struct Arg {
-    name: String,
+    pub(crate) name: String,
 }
 
 // TODO (Techassi): Add optional parameters

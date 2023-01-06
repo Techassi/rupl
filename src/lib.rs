@@ -1,3 +1,8 @@
+use std::{collections::HashMap, fmt::Display, time::Duration};
+
+use rustyline::{completion::Completer, error::ReadlineError, Editor};
+use rustyline_derive::{Helper, Highlighter, Hinter, Validator};
+
 mod args;
 mod command;
 mod context;
@@ -8,15 +13,12 @@ pub use command::*;
 pub use context::*;
 pub use error::*;
 
-use std::{collections::HashMap, fmt::Display, time::Duration};
-
-use rustyline::{error::ReadlineError, Editor};
-
 pub type RunFn<C, E> = fn(FnContext<C>) -> std::result::Result<Option<String>, E>;
 
 pub struct Repl<C, E>
 where
-    E: Display + Into<Error>,
+    C: Clone,
+    E: Clone + Display + Into<Error>,
 {
     commands: HashMap<String, Command<C, E>>,
     ignore_empty_line: bool,
@@ -31,7 +33,8 @@ where
 
 impl<C, E> Repl<C, E>
 where
-    E: Display + Into<Error>,
+    C: Clone,
+    E: Clone + Display + Into<Error>,
 {
     /// Creates a new default REPL with a context.
     ///
@@ -224,7 +227,13 @@ where
     /// repl.run();
     /// ```
     pub fn run(&mut self) -> ReplResult<()> {
-        let mut editor = Editor::<()>::new()?;
+        let mut editor = match Editor::<Helper<C, E>>::new() {
+            Ok(e) => e,
+            Err(err) => return Err(Error::EditorError(err.to_string())),
+        };
+
+        let helper = Helper::new(self.commands.clone());
+        editor.set_helper(Some(helper));
         self.print_welcome_message();
 
         loop {
@@ -258,7 +267,7 @@ where
                     #[cfg(not(debug_assertions))]
                     continue;
                 }
-                Err(err) => return Err(Error::EditorError(err)),
+                Err(err) => return Err(Error::EditorError(err.to_string())),
             }
         }
 
@@ -270,7 +279,7 @@ where
     }
 
     fn handle_command(&mut self, line: &str) -> ReplResult<Option<String>> {
-        let (cmd, args) = match line.split_once(" ") {
+        let (cmd, args_str) = match line.split_once(" ") {
             Some(parts) => parts,
             None => (line, ""),
         };
@@ -280,7 +289,7 @@ where
                 let mut parsed_args = Args::default();
 
                 if cmd.has_args() {
-                    parsed_args = match Args::new(args, cmd.args.clone()) {
+                    parsed_args = match Args::new(args_str, cmd.args.clone()) {
                         Ok(p) => p,
                         Err(err) => return Err(err.into()), // TODO (Techassi): Make this configurable
                     };
@@ -298,7 +307,7 @@ where
                 }
 
                 match cmd {
-                    "help" => self.handle_help_builtin(args),
+                    "help" => self.handle_help_builtin(args_str),
                     "version" => self.handle_version_builtin(),
                     _ => return Err(Error::NoSuchCommandError(cmd.into())),
                 }
@@ -327,9 +336,72 @@ where
         self.handle_output(Some(err.to_string()))
     }
 
-    fn print_welcome_message(&self) {
+    fn print_welcome_message(&mut self) {
         if !self.welcome_message.is_empty() {
             println!("{}", self.welcome_message)
         }
+    }
+}
+
+#[derive(Helper, Hinter, Highlighter, Validator)]
+struct Helper<C, E>
+where
+    C: Clone,
+    E: Clone + Display + Into<Error>,
+{
+    pub(crate) commands: HashMap<String, Command<C, E>>,
+}
+
+impl<C, E> Helper<C, E>
+where
+    C: Clone,
+    E: Clone + Display + Into<Error>,
+{
+    pub(crate) fn new(commands: HashMap<String, Command<C, E>>) -> Self {
+        Self { commands }
+    }
+}
+
+impl<C, E> Completer for Helper<C, E>
+where
+    C: Clone,
+    E: Clone + Display + Into<Error>,
+{
+    type Candidate = String;
+
+    fn complete(
+        &self,
+        line: &str,
+        pos: usize,
+        _ctx: &rustyline::Context<'_>,
+    ) -> rustyline::Result<(usize, Vec<Self::Candidate>)> {
+        let line = line.trim();
+        // The user didn't type anything and pressed tab. In this case we
+        // display a list of available commands
+        if pos == 0 || line.is_empty() {
+            let cmds: Vec<Self::Candidate> =
+                self.commands.iter().map(|c| c.1.name.clone()).collect();
+            return Ok((0, cmds));
+        }
+
+        // If we have some input, try to find the correct command and display
+        // the arguments as tab completions options. If we didn't match any
+        // command, we have to deal with partial input: try to match commands
+        // starting with the current input
+        let (start, _) = match line.split_once(' ') {
+            Some(parts) => parts,
+            None => (line, ""),
+        };
+
+        match self.commands.get(start) {
+            Some(cmd) => {
+                let args: Vec<Self::Candidate> =
+                    cmd.args.iter().map(|a| format!("--{}", a.name)).collect();
+                return Ok((pos, args));
+            }
+            None => return Ok((pos, Vec::with_capacity(0))),
+        };
+
+        // Ok((pos, Vec::with_capacity(0)))
     }
 }
