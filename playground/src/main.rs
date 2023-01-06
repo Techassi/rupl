@@ -1,4 +1,4 @@
-use rupl::{Command, Parameter, Parameters, Repl, ReplResult};
+use rupl::{Arg, Command, FnContext, Repl, ReplResult};
 
 fn main() -> ReplResult<()> {
     let mut repl = Repl::new(());
@@ -12,28 +12,16 @@ fn main() -> ReplResult<()> {
         .with_output_prompt(Some(":> "))
         .with_command(
             Command::new("hello", hello)
-                .with_param(Parameter::new("name"))?
-                .with_param(Parameter::new("punctation"))?,
-        )
-        .with_command(
-            Command::new("service", service)
-                .with_subcommand(Command::new("status", service_status))?,
+                .with_arg(Arg::new("name"))
+                .with_arg(Arg::new("end")),
         );
 
     repl.run()
 }
 
-fn hello(params: Parameters, _ctx: &mut ()) -> ReplResult<Option<String>> {
-    let name: String = params.get("name")?;
-    let punctation: String = params.get("punctation")?;
+fn hello(ctx: FnContext<()>) -> ReplResult<Option<String>> {
+    let name: String = ctx.args().get("name")?;
+    let end: String = ctx.args().get("end")?;
 
-    Ok(Some(format!("Hello, {}{}", name, punctation)))
-}
-
-fn service(params: Parameters, ctx: &mut ()) -> ReplResult<Option<String>> {
-    service_status(params, ctx)
-}
-
-fn service_status(_params: Parameters, _ctx: &mut ()) -> ReplResult<Option<String>> {
-    Ok(None)
+    Ok(Some(format!("Hello, {}{}", name, end)))
 }
