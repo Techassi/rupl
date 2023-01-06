@@ -1,16 +1,18 @@
+mod args;
 mod command;
+mod context;
 mod error;
-mod parameters;
 
+pub use args::*;
 pub use command::*;
+pub use context::*;
 pub use error::*;
-pub use parameters::*;
 
-use std::{collections::HashMap, fmt::Display};
+use std::{collections::HashMap, fmt::Display, time::Duration};
 
 use rustyline::{error::ReadlineError, Editor};
 
-pub type RunFn<C, E> = fn(Parameters, &mut C) -> std::result::Result<Option<String>, E>;
+pub type RunFn<C, E> = fn(FnContext<C>) -> std::result::Result<Option<String>, E>;
 
 pub struct Repl<C, E>
 where
@@ -66,9 +68,9 @@ where
     /// repl.with_prompt("#");
     /// repl.run();
     /// ```
-    pub fn with_prompt<T>(&mut self, prompt: T) -> &mut Self
+    pub fn with_prompt<P>(&mut self, prompt: P) -> &mut Self
     where
-        T: Into<String>,
+        P: Into<String>,
     {
         self.prompt = prompt.into().trim_end().to_string() + " ";
         self
@@ -85,9 +87,9 @@ where
     /// repl.with_welcome_message("Welcome from your REPL!");
     /// repl.run();
     /// ```
-    pub fn with_welcome_message<T>(&mut self, message: T) -> &mut Self
+    pub fn with_welcome_message<M>(&mut self, message: M) -> &mut Self
     where
-        T: Into<String>,
+        M: Into<String>,
     {
         self.welcome_message = message.into();
         self
@@ -103,9 +105,9 @@ where
     /// repl.with_exit_message("Exiting... Bye!");
     /// repl.run();
     /// ```
-    pub fn with_exit_message<T>(&mut self, message: T) -> &mut Self
+    pub fn with_exit_message<M>(&mut self, message: M) -> &mut Self
     where
-        T: Into<String>,
+        M: Into<String>,
     {
         self.exit_message = message.into();
         self
@@ -122,9 +124,9 @@ where
     /// repl.with_version("1.3.4");
     /// repl.run();
     /// ```
-    pub fn with_version<T>(&mut self, version: T) -> &mut Self
+    pub fn with_version<V>(&mut self, version: V) -> &mut Self
     where
-        T: Into<String>,
+        V: Into<String>,
     {
         self.version = version.into();
         self
@@ -158,9 +160,9 @@ where
     /// repl.with_output_prompt(Some("#"));
     /// repl.run();
     /// ```
-    pub fn with_output_prompt<T>(&mut self, prompt: Option<T>) -> &mut Self
+    pub fn with_output_prompt<P>(&mut self, prompt: Option<P>) -> &mut Self
     where
-        T: Into<String>,
+        P: Into<String>,
     {
         match prompt {
             Some(prompt) => self.output_prompt = prompt.into().trim_end().to_string() + " ",
@@ -237,7 +239,7 @@ where
                     }
 
                     match self.handle_command(line) {
-                        Err(Error::ParameterError(err)) => self.handle_parameter_error(err),
+                        Err(Error::ArgError(err)) => self.handle_parameter_error(err),
                         Err(err) => return Err(err),
                         Ok(out) => self.handle_output(out),
                     }
@@ -275,16 +277,16 @@ where
 
         match self.commands.get(cmd) {
             Some(cmd) => {
-                let mut params = Parameters::default();
+                let mut parsed_args = Args::default();
 
-                if cmd.has_params() {
-                    params = match Parameters::new(args, cmd.parameters.clone()) {
+                if cmd.has_args() {
+                    parsed_args = match Args::new(args, cmd.args.clone()) {
                         Ok(p) => p,
                         Err(err) => return Err(err.into()), // TODO (Techassi): Make this configurable
                     };
                 }
 
-                match (cmd.run)(params, &mut self.context) {
+                match (cmd.run)(FnContext::new(parsed_args, &mut self.context)) {
                     Ok(Some(out)) => return Ok(Some(out)),
                     Ok(None) => return Ok(None),
                     Err(err) => return Err(err.into()),
@@ -321,7 +323,7 @@ where
         Ok(Some(self.version.clone()))
     }
 
-    fn handle_parameter_error(&self, err: ParameterError) {
+    fn handle_parameter_error(&self, err: ArgError) {
         self.handle_output(Some(err.to_string()))
     }
 
