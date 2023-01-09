@@ -1,14 +1,16 @@
-use std::{collections::HashMap, fmt::Display, time::Duration};
+use std::{collections::HashMap, fmt::Display};
 
 use rustyline::{completion::Completer, error::ReadlineError, Editor};
 use rustyline_derive::{Helper, Highlighter, Hinter, Validator};
 
 mod args;
+mod builder;
 mod command;
 mod context;
 mod error;
 
 pub use args::*;
+pub use builder::*;
 pub use command::*;
 pub use context::*;
 pub use error::*;
@@ -45,176 +47,23 @@ where
     /// repl.run();
     /// ```
     pub fn new(context: C) -> Self {
-        Self {
-            version: String::from(env!("CARGO_PKG_VERSION")),
-            welcome_message: String::new(),
-            output_prompt: String::new(),
-            exit_message: String::new(),
-            prompt: String::from(">> "),
-            ignore_empty_line: true,
-            commands: HashMap::new(),
-            use_builtins: true,
-            context,
-        }
+        Self::builder(context).build()
     }
 
-    /// Change the prompt which appears in front of every input line. The
-    /// default is `>>`. This function automatically adds a space to the
-    /// end of the prompt. Trailing whitespace is removed from the provided
-    /// prompt beforehand.
+    /// Create a [`ReplBuilder`] to configure a [`Repl`].
     ///
     /// ### Example
     ///
     /// ```no_run
-    /// let mut repl = Repl::new(());
+    /// let mut repl = Repl::builder(())
+    ///     .with_version("0.1.4")
+    ///     .with_prompt(">")
+    ///     .build();
     ///
-    /// repl.with_prompt("#");
     /// repl.run();
     /// ```
-    pub fn with_prompt<P>(&mut self, prompt: P) -> &mut Self
-    where
-        P: Into<String>,
-    {
-        self.prompt = prompt.into().trim_end().to_string() + " ";
-        self
-    }
-
-    /// Adds a welcome message which gets printed once at the start of the
-    /// REPL.
-    ///
-    /// ### Example
-    ///
-    /// ```no_run
-    /// let mut repl = Repl::new(());
-    ///
-    /// repl.with_welcome_message("Welcome from your REPL!");
-    /// repl.run();
-    /// ```
-    pub fn with_welcome_message<M>(&mut self, message: M) -> &mut Self
-    where
-        M: Into<String>,
-    {
-        self.welcome_message = message.into();
-        self
-    }
-
-    /// Adds an exit message which gets printed when the user exists the REPL.
-    ///
-    /// ### Example
-    ///
-    /// ```no_run
-    /// let mut repl = Repl::new(());
-    ///
-    /// repl.with_exit_message("Exiting... Bye!");
-    /// repl.run();
-    /// ```
-    pub fn with_exit_message<M>(&mut self, message: M) -> &mut Self
-    where
-        M: Into<String>,
-    {
-        self.exit_message = message.into();
-        self
-    }
-
-    /// Adds a version string to the REPL. When builtin commands are enabled,
-    /// the version can be printed with the `version` command.
-    ///
-    /// ### Example
-    ///
-    /// ```no_run
-    /// let mut repl = Repl::new(());
-    ///
-    /// repl.with_version("1.3.4");
-    /// repl.run();
-    /// ```
-    pub fn with_version<V>(&mut self, version: V) -> &mut Self
-    where
-        V: Into<String>,
-    {
-        self.version = version.into();
-        self
-    }
-
-    /// Sets if empty lines (all whitespace) should be ignored.
-    ///
-    /// ### Example
-    ///
-    /// ```no_run
-    /// let mut repl = Repl::new(());
-    ///
-    /// repl.ignore_empty_line(true);
-    /// repl.run();
-    /// ```
-    pub fn ignore_empty_line(&mut self, ignore: bool) -> &mut Self {
-        self.ignore_empty_line = ignore;
-        self
-    }
-
-    /// Set the output prompt. When [`Some`] is provided, this value will be
-    /// used as the output prompt. Providing [`None`] will instead fallback to
-    /// the input prompt. Disabling the output prompt can be achieved by
-    /// providing `Some("")`.
-    ///
-    /// ### Example
-    ///
-    /// ```no_run
-    /// let mut repl = Repl::new(());
-    ///
-    /// repl.with_output_prompt(Some("#"));
-    /// repl.run();
-    /// ```
-    pub fn with_output_prompt<P>(&mut self, prompt: Option<P>) -> &mut Self
-    where
-        P: Into<String>,
-    {
-        match prompt {
-            Some(prompt) => self.output_prompt = prompt.into().trim_end().to_string() + " ",
-            None => self.output_prompt = self.prompt.clone(),
-        }
-
-        self
-    }
-
-    /// Adds a command to the REPL. See [`Command`] for more information on how
-    /// to construct commands.
-    ///
-    /// ### Example
-    ///
-    /// ```no_run
-    /// let mut repl = Repl::new(());
-    ///
-    /// fn hello(params: Parameters, _ctx: &mut ()) -> ReplResult<Option<String>> {
-    ///     let name: String = params.get("name")?;
-    ///     let punctation: String = params.get("punctation")?;
-    ///
-    ///     Ok(Some(format!("Hello, {}{}", name, punctation)))
-    /// }
-    ///
-    /// repl.with_command(
-    ///     Command::new("hello", hello)
-    ///         .with_param(Parameter::new("name"))?
-    ///         .with_param(Parameter::new("punctation"))?,
-    /// );
-    /// repl.run();
-    /// ```
-    pub fn with_command(&mut self, command: Command<C, E>) -> &mut Self {
-        self.commands.insert(command.name.clone(), command);
-        self
-    }
-
-    /// Enables or disables builtin commands, like `help` or `version`.
-    ///
-    /// ### Example
-    ///
-    /// ```no_run
-    /// let mut repl = Repl::new(());
-    ///
-    /// repl.with_builtins(true);
-    /// repl.run();
-    /// ```
-    pub fn with_builtins(&mut self, use_builtins: bool) -> &mut Self {
-        self.use_builtins = use_builtins;
-        self
+    pub fn builder(context: C) -> ReplBuilder<C, E> {
+        ReplBuilder::new(context)
     }
 
     /// Runs the REPL. This will block until the user exists the REPL with
