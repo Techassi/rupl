@@ -63,8 +63,8 @@ fn cursor_buffer_basic() {
     assert_eq!(buf.get_pos(), 2);
     assert_eq!(buf.as_bytes(), vec![97, 98]);
 
-    let pos = buf.move_left();
-    assert_eq!(pos, 1);
+    let moved = buf.move_left();
+    assert_eq!(moved, true);
 
     buf.insert(&['x', 'y', 'z']).unwrap();
     assert_eq!(buf.len(), 5);
