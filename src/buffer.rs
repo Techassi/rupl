@@ -106,27 +106,30 @@ impl CursorBuffer {
     }
 
     pub fn clear(&mut self) {
-        self.buf.clear()
+        self.buf.clear();
+        self.cur_pos = 0;
     }
 
     pub fn as_bytes(&self) -> Vec<u8> {
         self.buf.as_bytes()
     }
 
-    pub fn move_left(&mut self) -> usize {
+    pub fn move_left(&mut self) -> bool {
         if self.cur_pos > 0 {
             self.cur_pos -= 1;
+            return true;
         }
 
-        self.cur_pos
+        false
     }
 
-    pub fn move_right(&mut self) -> usize {
-        if self.cur_pos <= self.buf.len() {
+    pub fn move_right(&mut self) -> bool {
+        if self.cur_pos < self.buf.len() {
             self.cur_pos += 1;
+            return true;
         }
 
-        self.cur_pos
+        false
     }
 
     pub fn get_pos(&self) -> usize {

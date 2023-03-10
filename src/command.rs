@@ -1,54 +1,40 @@
-use std::fmt::Display;
+use std::collections::HashMap;
 
-use crate::{args::Arg, error::Error, RunFn};
-
-#[derive(Clone)]
-pub struct Command<C, E>
-where
-    C: Clone,
-    E: Clone + Display + Into<Error>,
-{
-    pub(crate) help: Option<String>,
-    pub(crate) run: RunFn<C, E>,
-    pub(crate) args: Vec<Arg>,
-    pub(crate) name: String,
+pub struct Command<'a, C> {
+    pub(crate) sub: HashMap<&'a str, Command<'a, C>>,
+    pub(crate) func: Box<dyn Fn(&mut C) -> String>,
+    pub(crate) args: Vec<String>,
+    pub(crate) name: &'a str,
 }
 
-impl<C, E> Command<C, E>
-where
-    C: Clone,
-    E: Clone + Display + Into<Error>,
-{
-    pub fn new<T>(name: T, run: RunFn<C, E>) -> Self
+impl<'a, C> Command<'a, C> {
+    pub fn new<F>(name: &'a str, func: F) -> Self
     where
-        T: Into<String>,
+        F: Fn(&mut C) -> String + 'static,
     {
         Self {
-            name: name.into(),
-            args: vec![],
-            help: None,
-            run,
+            func: Box::new(func),
+            sub: HashMap::new(),
+            args: Vec::new(),
+            name,
         }
     }
 
-    pub fn with_arg(mut self, param: Arg) -> Self {
-        self.args.push(param);
+    pub fn name(&self) -> &'a str {
+        self.name
+    }
+
+    pub fn with_subcommand(mut self, command: Command<'a, C>) -> Self {
+        self.sub.insert(command.name(), command);
         self
     }
 
-    pub fn with_help<T>(mut self, help: T) -> Self
-    where
-        T: Into<String>,
-    {
-        self.help = Some(help.into());
+    pub fn with_arg<T: Into<String>>(mut self, name: T) -> Self {
+        self.args.push(name.into());
         self
     }
 
-    pub fn name(&self) -> &String {
-        &self.name
-    }
-
-    pub(crate) fn has_args(&self) -> bool {
-        self.args.len() > 0
+    pub fn run(&self, ctx: &mut C) -> String {
+        (self.func)(ctx)
     }
 }

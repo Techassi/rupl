@@ -1,38 +1,30 @@
-use std::io;
+use std::{collections::HashMap, io};
 
 use termion::raw::IntoRawMode;
 
 use crate::{buffer::CursorBuffer, Command, Repl};
 
-pub struct ReplBuilder<C>
-where
-    C: Clone,
-    // E: std::fmt::Debug + Display + Into<ReplError>,
-{
-    // commands: HashMap<String, Command<C, E>>,
+pub struct ReplBuilder<'a, C> {
+    commands: HashMap<&'a str, Command<'a, C>>,
     ignore_empty_line: bool,
     welcome_message: String,
     output_prompt: String,
     exit_message: String,
     use_builtins: bool,
+    context: &'a mut C,
     version: String,
     prompt: String,
-    context: C,
 }
 
-impl<C> ReplBuilder<C>
-where
-    C: Clone,
-    // E: std::fmt::Debug + Display + Into<ReplError>,
-{
-    pub fn new(context: C) -> Self {
+impl<'a, C> ReplBuilder<'a, C> {
+    pub fn new(context: &'a mut C) -> Self {
         Self {
             version: String::from(env!("CARGO_PKG_VERSION")),
             welcome_message: String::new(),
             output_prompt: String::new(),
             exit_message: String::new(),
             prompt: String::from(">>"),
-            // commands: HashMap::new(),
+            commands: HashMap::new(),
             ignore_empty_line: true,
             use_builtins: true,
             context,
@@ -161,8 +153,8 @@ where
     ///
     /// repl.run();
     /// ```
-    pub fn with_command(mut self, command: Command<C>) -> Self {
-        // self.commands.insert(command.name.clone(), command);
+    pub fn with_command(mut self, command: Command<'a, C>) -> Self {
+        self.commands.insert(command.name(), command);
         self
     }
 
@@ -191,7 +183,7 @@ where
     ///
     /// repl.run();
     /// ```
-    pub fn build(self) -> Repl<C> {
+    pub fn build(self) -> Repl<'a, C> {
         let stdout = io::stdout().into_raw_mode().unwrap();
 
         Repl {
@@ -203,9 +195,10 @@ where
             // use_builtins: self.use_builtins,
             // version: self.version,
             buffer: CursorBuffer::new(),
+            commands: self.commands,
             output: String::new(),
             context: self.context,
-            stdout, // prompt: self.prompt,
+            stdout,
         }
     }
 }

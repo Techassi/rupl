@@ -1,5 +1,9 @@
-use std::io::{Stdout, Write};
+use std::{
+    collections::HashMap,
+    io::{stdin, Stdout, Write},
+};
 
+use nom::{character::complete::space0, IResult};
 use termion::{event::Key, input::TermRead, raw::RawTerminal};
 
 pub mod args;
@@ -18,22 +22,15 @@ use error::*;
 
 pub type RunFn<C> = fn(FnContext<C>) -> std::result::Result<Option<String>, ReplError>;
 
-pub struct Repl<C>
-where
-    C: Clone,
-    // E: std::fmt::Debug + Display + Into<ReplError>,
-{
+pub struct Repl<'a, C> {
+    commands: HashMap<&'a str, Command<'a, C>>,
     stdout: RawTerminal<Stdout>,
     buffer: CursorBuffer,
+    context: &'a mut C,
     output: String,
-    context: C,
 }
 
-impl<C> Repl<C>
-where
-    C: Clone,
-    // E: std::fmt::Debug + Display + Into<ReplError>,
-{
+impl<'a, C> Repl<'a, C> {
     /// Creates a new default REPL with a context.
     ///
     /// ### Example
@@ -42,7 +39,7 @@ where
     /// let mut repl = Repl::new(());
     /// repl.run();
     /// ```
-    pub fn new(context: C) -> Self {
+    pub fn new(context: &'a mut C) -> Self {
         Self::builder(context).build()
     }
 
@@ -58,7 +55,7 @@ where
     ///
     /// repl.run();
     /// ```
-    pub fn builder(context: C) -> ReplBuilder<C> {
+    pub fn builder(context: &'a mut C) -> ReplBuilder<'a, C> {
         ReplBuilder::new(context)
     }
 
@@ -72,7 +69,7 @@ where
     /// repl.run();
     /// ```
     pub fn run(&mut self) -> ReplResult<()> {
-        let mut stdin = termion::async_stdin().keys();
+        let mut stdin = stdin().keys();
 
         loop {
             match stdin.next() {
@@ -87,13 +84,13 @@ where
 
     fn handle_key(&mut self, key: Key) -> ReplResult<()> {
         match key {
-            Key::Backspace => Ok(self.handle_backspace_key()),
-            Key::Left => Ok(self.handle_left_key()),
-            Key::Right => Ok(self.handle_right_key()),
-            Key::Up => todo!(),
-            Key::Down => todo!(),
-            Key::Home => todo!(),
-            Key::End => todo!(),
+            Key::Backspace => self.handle_backspace_key(),
+            Key::Left => self.handle_left_key(),
+            Key::Right => self.handle_right_key(),
+            Key::Up => self.handle_up_key(),
+            Key::Down => self.handle_down_key(),
+            Key::Home => self.handle_home_key(),
+            Key::End => self.handle_end_key(),
             Key::PageUp => todo!(),
             Key::PageDown => todo!(),
             Key::BackTab => todo!(),
@@ -107,32 +104,49 @@ where
             Key::Esc => todo!(),
             _ => todo!(),
         }
-
-        // self.write_to_stdout_flush(format!("Key: {:?}", key))
     }
 
-    fn handle_backspace_key(&mut self) {
+    fn handle_backspace_key(&mut self) -> ReplResult<()> {
+        // We are all the way left, pressing backspace does nothing
         if self.buffer.get_pos() == 0 {
-            return;
+            return Ok(());
         }
 
-        self.buffer.remove_one(Direction::Left);
+        let _ = self.buffer.remove_one(Direction::Left)?;
+        self.display_input()
     }
 
-    fn handle_left_key(&mut self) {
-        self.buffer.move_left();
+    fn handle_left_key(&mut self) -> ReplResult<()> {
+        self.left()
     }
 
-    fn handle_right_key(&mut self) {
-        self.buffer.move_right();
+    fn handle_right_key(&mut self) -> ReplResult<()> {
+        self.right()
+    }
+
+    fn handle_up_key(&mut self) -> ReplResult<()> {
+        Ok(())
+    }
+
+    fn handle_down_key(&mut self) -> ReplResult<()> {
+        Ok(())
+    }
+
+    fn handle_home_key(&mut self) -> ReplResult<()> {
+        Ok(())
+    }
+
+    fn handle_end_key(&mut self) -> ReplResult<()> {
+        Ok(())
     }
 
     fn handle_char_key(&mut self, c: char) -> ReplResult<()> {
         match c {
             '\n' => self.handle_enter_key(),
+            '\t' => self.handle_tab_key(),
             _ => {
                 self.buffer.insert(&[c])?;
-                self.display()?;
+                self.display_input()?;
                 Ok(())
             }
         }
@@ -149,10 +163,36 @@ where
         self.parse_input()
     }
 
-    fn parse_input(&mut self) -> ReplResult<()> {
-        self.output.push_str("PARSE: ");
+    fn handle_tab_key(&mut self) -> ReplResult<()> {
+        Ok(())
+    }
 
-        self.display()?;
+    /// Parses the input. The function tries to match commands, subcommands
+    /// and arguments.
+    fn parse_input(&mut self) -> ReplResult<()> {
+        let input = self.buffer.to_string();
+        let input = input.as_str();
+
+        fn until_space_or_end(s: &str) -> IResult<&str, &str> {
+            space0(s)
+        }
+
+        let (cmd, rest) = match until_space_or_end(input) {
+            Ok(res) => res,
+            Err(_) => todo!(),
+        };
+
+        let cmd_output = match self.commands.get(cmd) {
+            Some(cmd) => cmd.run(self.context),
+            None => {
+                self.buffer.clear();
+                "".into()
+            }
+        };
+
+        self.output.push_str(&cmd_output);
+
+        self.display_input()?;
         self.newline()?;
 
         // Clear the current input buffer after parsing the
@@ -162,13 +202,22 @@ where
         Ok(())
     }
 
-    fn display(&mut self) -> ReplResult<()> {
+    /// Displays the user input on stdout. This is achieved by first erasing
+    /// the contents of the current line, writing the refreshed input to
+    /// stdout, flushing it and then clearing the output buffer.
+    fn display_input(&mut self) -> ReplResult<()> {
         // Erase entire line and go back to start of line
         self.output.insert_str(0, "\x1B[2K\r");
 
         // Append current input buffer, write to stdout
         self.output.push_str(self.buffer.to_string().as_str());
-        self.stdout.write_all(self.output.as_bytes())?;
+        write!(self.stdout, "{}", self.output)?;
+
+        // Position the cursor correctly again
+        let diff = self.buffer.len() - self.buffer.get_pos();
+        if diff != 0 {
+            write!(self.stdout, "{}", termion::cursor::Left(diff as u16))?;
+        }
 
         // Flush and clear current output
         self.stdout.flush()?;
@@ -177,7 +226,32 @@ where
         Ok(())
     }
 
+    fn display_output() {}
+
+    /// Inserts a newline into stdout
     fn newline(&mut self) -> ReplResult<()> {
-        Ok(self.stdout.write_all(b"\r\n")?)
+        Ok(write!(self.stdout, "\r\n")?)
+    }
+
+    /// Moves the cursor left. This moves the cursor in the
+    /// terminal and the input buffer.
+    fn left(&mut self) -> ReplResult<()> {
+        if self.buffer.move_left() {
+            write!(self.stdout, "{}", termion::cursor::Left(1))?;
+            self.stdout.flush()?
+        }
+
+        Ok(())
+    }
+
+    /// Moves the cursor right. This moves the cursor in the
+    /// terminal and the input buffer.
+    fn right(&mut self) -> ReplResult<()> {
+        if self.buffer.move_right() {
+            write!(self.stdout, "{}", termion::cursor::Right(1))?;
+            self.stdout.flush()?
+        }
+
+        Ok(())
     }
 }
