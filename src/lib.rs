@@ -1,42 +1,38 @@
-use std::{collections::HashMap, fmt::Display};
+use std::io::{Stdout, Write};
 
-use rustyline::{completion::Completer, error::ReadlineError, Editor};
-use rustyline_derive::{Helper, Highlighter, Hinter, Validator};
+use termion::{event::Key, input::TermRead, raw::RawTerminal};
 
-mod args;
-mod builder;
-mod command;
-mod context;
-mod error;
+pub mod args;
+pub mod buffer;
+pub mod builder;
+pub mod command;
+pub mod context;
+pub mod error;
 
-pub use args::*;
-pub use builder::*;
-pub use command::*;
-pub use context::*;
-pub use error::*;
+use args::*;
+use buffer::*;
+use builder::*;
+use command::*;
+use context::*;
+use error::*;
 
-pub type RunFn<C, E> = fn(FnContext<C>) -> std::result::Result<Option<String>, E>;
+pub type RunFn<C> = fn(FnContext<C>) -> std::result::Result<Option<String>, ReplError>;
 
-pub struct Repl<C, E>
+pub struct Repl<C>
 where
     C: Clone,
-    E: Clone + Display + Into<Error>,
+    // E: std::fmt::Debug + Display + Into<ReplError>,
 {
-    commands: HashMap<String, Command<C, E>>,
-    ignore_empty_line: bool,
-    welcome_message: String,
-    output_prompt: String,
-    exit_message: String,
-    version: String,
-    prompt: String,
-    use_builtins: bool,
+    stdout: RawTerminal<Stdout>,
+    buffer: CursorBuffer,
+    output: String,
     context: C,
 }
 
-impl<C, E> Repl<C, E>
+impl<C> Repl<C>
 where
     C: Clone,
-    E: Clone + Display + Into<Error>,
+    // E: std::fmt::Debug + Display + Into<ReplError>,
 {
     /// Creates a new default REPL with a context.
     ///
@@ -62,7 +58,7 @@ where
     ///
     /// repl.run();
     /// ```
-    pub fn builder(context: C) -> ReplBuilder<C, E> {
+    pub fn builder(context: C) -> ReplBuilder<C> {
         ReplBuilder::new(context)
     }
 
@@ -76,181 +72,112 @@ where
     /// repl.run();
     /// ```
     pub fn run(&mut self) -> ReplResult<()> {
-        let mut editor = match Editor::<Helper<C, E>>::new() {
-            Ok(e) => e,
-            Err(err) => return Err(Error::EditorError(err.to_string())),
-        };
-
-        let helper = Helper::new(self.commands.clone());
-        editor.set_helper(Some(helper));
-        self.print_welcome_message();
+        let mut stdin = termion::async_stdin().keys();
 
         loop {
-            let readline = editor.readline(&self.prompt);
+            match stdin.next() {
+                Some(result) => match result {
+                    Ok(key) => self.handle_key(key)?,
+                    Err(err) => panic!("{err}"),
+                },
+                None => continue,
+            };
+        }
+    }
 
-            match readline {
-                Ok(line) => {
-                    let line = line.trim();
+    fn handle_key(&mut self, key: Key) -> ReplResult<()> {
+        match key {
+            Key::Backspace => Ok(self.handle_backspace_key()),
+            Key::Left => Ok(self.handle_left_key()),
+            Key::Right => Ok(self.handle_right_key()),
+            Key::Up => todo!(),
+            Key::Down => todo!(),
+            Key::Home => todo!(),
+            Key::End => todo!(),
+            Key::PageUp => todo!(),
+            Key::PageDown => todo!(),
+            Key::BackTab => todo!(),
+            Key::Delete => todo!(),
+            Key::Insert => todo!(),
+            Key::F(_) => todo!(),
+            Key::Char(c) => self.handle_char_key(c),
+            Key::Alt(_) => todo!(),
+            Key::Ctrl(_) => todo!(),
+            Key::Null => todo!(),
+            Key::Esc => todo!(),
+            _ => todo!(),
+        }
 
-                    if self.ignore_empty_line && line.is_empty() {
-                        continue;
-                    }
+        // self.write_to_stdout_flush(format!("Key: {:?}", key))
+    }
 
-                    match self.handle_command(line) {
-                        Err(Error::ArgError(err)) => self.handle_parameter_error(err),
-                        Err(err) => return Err(err),
-                        Ok(out) => self.handle_output(out),
-                    }
-                }
-                Err(ReadlineError::Interrupted) => {
-                    #[cfg(debug_assertions)]
-                    break;
+    fn handle_backspace_key(&mut self) {
+        if self.buffer.get_pos() == 0 {
+            return;
+        }
 
-                    #[cfg(not(debug_assertions))]
-                    continue;
-                }
-                Err(ReadlineError::Eof) => {
-                    #[cfg(debug_assertions)]
-                    break;
+        self.buffer.remove_one(Direction::Left);
+    }
 
-                    #[cfg(not(debug_assertions))]
-                    continue;
-                }
-                Err(err) => return Err(Error::EditorError(err.to_string())),
+    fn handle_left_key(&mut self) {
+        self.buffer.move_left();
+    }
+
+    fn handle_right_key(&mut self) {
+        self.buffer.move_right();
+    }
+
+    fn handle_char_key(&mut self, c: char) -> ReplResult<()> {
+        match c {
+            '\n' => self.handle_enter_key(),
+            _ => {
+                self.buffer.insert(&[c])?;
+                self.display()?;
+                Ok(())
             }
         }
+    }
 
-        if !self.exit_message.trim().is_empty() {
-            println!("{}", self.exit_message);
+    fn handle_enter_key(&mut self) -> ReplResult<()> {
+        // No input, do nothing
+        if self.buffer.is_empty() {
+            return self.newline();
         }
+
+        // Else handle the input
+        self.newline()?;
+        self.parse_input()
+    }
+
+    fn parse_input(&mut self) -> ReplResult<()> {
+        self.output.push_str("PARSE: ");
+
+        self.display()?;
+        self.newline()?;
+
+        // Clear the current input buffer after parsing the
+        // inpput and executing any matched commands.
+        self.buffer.clear();
 
         Ok(())
     }
 
-    fn handle_command(&mut self, line: &str) -> ReplResult<Option<String>> {
-        let (cmd, args_str) = match line.split_once(" ") {
-            Some(parts) => parts,
-            None => (line, ""),
-        };
+    fn display(&mut self) -> ReplResult<()> {
+        // Erase entire line and go back to start of line
+        self.output.insert_str(0, "\x1B[2K\r");
 
-        match self.commands.get(cmd) {
-            Some(cmd) => {
-                let mut parsed_args = Args::default();
+        // Append current input buffer, write to stdout
+        self.output.push_str(self.buffer.to_string().as_str());
+        self.stdout.write_all(self.output.as_bytes())?;
 
-                if cmd.has_args() {
-                    parsed_args = match Args::new(args_str, cmd.args.clone()) {
-                        Ok(p) => p,
-                        Err(err) => return Err(err.into()), // TODO (Techassi): Make this configurable
-                    };
-                }
+        // Flush and clear current output
+        self.stdout.flush()?;
+        self.output.clear();
 
-                match (cmd.run)(FnContext::new(parsed_args, &mut self.context)) {
-                    Ok(Some(out)) => return Ok(Some(out)),
-                    Ok(None) => return Ok(None),
-                    Err(err) => return Err(err.into()),
-                }
-            }
-            None => {
-                if !self.use_builtins {
-                    return Err(Error::NoSuchCommandError(cmd.into()));
-                }
-
-                match cmd {
-                    "help" => self.handle_help_builtin(args_str),
-                    "version" => self.handle_version_builtin(),
-                    _ => return Err(Error::NoSuchCommandError(cmd.into())),
-                }
-            }
-        }
+        Ok(())
     }
 
-    fn handle_output(&self, out: Option<String>) {
-        if out.is_some() {
-            println!("{}{}", self.output_prompt, out.unwrap());
-        }
-    }
-
-    fn handle_help_builtin<A>(&self, _args: A) -> ReplResult<Option<String>>
-    where
-        A: Into<String>,
-    {
-        Ok(Some(String::from("Help requested!")))
-    }
-
-    fn handle_version_builtin(&self) -> ReplResult<Option<String>> {
-        Ok(Some(self.version.clone()))
-    }
-
-    fn handle_parameter_error(&self, err: ArgError) {
-        self.handle_output(Some(err.to_string()))
-    }
-
-    fn print_welcome_message(&mut self) {
-        if !self.welcome_message.is_empty() {
-            println!("{}", self.welcome_message)
-        }
-    }
-}
-
-#[derive(Helper, Hinter, Highlighter, Validator)]
-struct Helper<C, E>
-where
-    C: Clone,
-    E: Clone + Display + Into<Error>,
-{
-    pub(crate) commands: HashMap<String, Command<C, E>>,
-}
-
-impl<C, E> Helper<C, E>
-where
-    C: Clone,
-    E: Clone + Display + Into<Error>,
-{
-    pub(crate) fn new(commands: HashMap<String, Command<C, E>>) -> Self {
-        Self { commands }
-    }
-}
-
-impl<C, E> Completer for Helper<C, E>
-where
-    C: Clone,
-    E: Clone + Display + Into<Error>,
-{
-    type Candidate = String;
-
-    fn complete(
-        &self,
-        line: &str,
-        pos: usize,
-        _ctx: &rustyline::Context<'_>,
-    ) -> rustyline::Result<(usize, Vec<Self::Candidate>)> {
-        let line = line.trim();
-        // The user didn't type anything and pressed tab. In this case we
-        // display a list of available commands
-        if pos == 0 || line.is_empty() {
-            let cmds: Vec<Self::Candidate> =
-                self.commands.iter().map(|c| c.1.name.clone()).collect();
-            return Ok((0, cmds));
-        }
-
-        // If we have some input, try to find the correct command and display
-        // the arguments as tab completions options. If we didn't match any
-        // command, we have to deal with partial input: try to match commands
-        // starting with the current input
-        let (start, _) = match line.split_once(' ') {
-            Some(parts) => parts,
-            None => (line, ""),
-        };
-
-        match self.commands.get(start) {
-            Some(cmd) => {
-                let args: Vec<Self::Candidate> =
-                    cmd.args.iter().map(|a| format!("--{}", a.name)).collect();
-                return Ok((pos, args));
-            }
-            None => return Ok((pos, Vec::with_capacity(0))),
-        };
-
-        // Ok((pos, Vec::with_capacity(0)))
+    fn newline(&mut self) -> ReplResult<()> {
+        Ok(self.stdout.write_all(b"\r\n")?)
     }
 }

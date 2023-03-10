@@ -1,13 +1,15 @@
-use std::{collections::HashMap, fmt::Display};
+use std::io;
 
-use crate::{Command, Error, Repl};
+use termion::raw::IntoRawMode;
 
-pub struct ReplBuilder<C, E>
+use crate::{buffer::CursorBuffer, Command, Repl};
+
+pub struct ReplBuilder<C>
 where
     C: Clone,
-    E: Clone + Display + Into<Error>,
+    // E: std::fmt::Debug + Display + Into<ReplError>,
 {
-    commands: HashMap<String, Command<C, E>>,
+    // commands: HashMap<String, Command<C, E>>,
     ignore_empty_line: bool,
     welcome_message: String,
     output_prompt: String,
@@ -18,10 +20,10 @@ where
     context: C,
 }
 
-impl<C, E> ReplBuilder<C, E>
+impl<C> ReplBuilder<C>
 where
     C: Clone,
-    E: Clone + Display + Into<Error>,
+    // E: std::fmt::Debug + Display + Into<ReplError>,
 {
     pub fn new(context: C) -> Self {
         Self {
@@ -30,7 +32,7 @@ where
             output_prompt: String::new(),
             exit_message: String::new(),
             prompt: String::from(">>"),
-            commands: HashMap::new(),
+            // commands: HashMap::new(),
             ignore_empty_line: true,
             use_builtins: true,
             context,
@@ -159,8 +161,8 @@ where
     ///
     /// repl.run();
     /// ```
-    pub fn with_command(mut self, command: Command<C, E>) -> Self {
-        self.commands.insert(command.name.clone(), command);
+    pub fn with_command(mut self, command: Command<C>) -> Self {
+        // self.commands.insert(command.name.clone(), command);
         self
     }
 
@@ -189,17 +191,21 @@ where
     ///
     /// repl.run();
     /// ```
-    pub fn build(self) -> Repl<C, E> {
+    pub fn build(self) -> Repl<C> {
+        let stdout = io::stdout().into_raw_mode().unwrap();
+
         Repl {
-            commands: self.commands,
-            ignore_empty_line: self.ignore_empty_line,
-            welcome_message: self.welcome_message,
-            output_prompt: self.output_prompt,
-            exit_message: self.exit_message,
-            use_builtins: self.use_builtins,
-            version: self.version,
+            // commands: self.commands,
+            // ignore_empty_line: self.ignore_empty_line,
+            // welcome_message: self.welcome_message,
+            // output_prompt: self.output_prompt,
+            // exit_message: self.exit_message,
+            // use_builtins: self.use_builtins,
+            // version: self.version,
+            buffer: CursorBuffer::new(),
+            output: String::new(),
             context: self.context,
-            prompt: self.prompt,
+            stdout, // prompt: self.prompt,
         }
     }
 }
