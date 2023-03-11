@@ -3,8 +3,15 @@ use std::{
     io::{stdin, Stdout, Write},
 };
 
-use nom::{character::complete::space0, IResult};
+use nom::{
+    character::complete::{alpha1, alphanumeric1, char},
+    combinator::cut,
+    multi::many0,
+    sequence::separated_pair,
+    IResult,
+};
 use termion::{event::Key, input::TermRead, raw::RawTerminal};
+use thiserror::Error;
 
 pub mod args;
 pub mod buffer;
@@ -22,8 +29,17 @@ use error::*;
 
 pub type RunFn<C> = fn(FnContext<C>) -> std::result::Result<Option<String>, ReplError>;
 
+#[derive(Debug, Error)]
+pub enum ParserError {
+    #[error("Empty input")]
+    EmptyInput,
+
+    #[error("Invalid arguments")]
+    InvalidArgs,
+}
+
 pub struct Repl<'a, C> {
-    commands: HashMap<&'a str, Command<'a, C>>,
+    commands: HashMap<String, Command<'a, C>>,
     stdout: RawTerminal<Stdout>,
     buffer: CursorBuffer,
     context: &'a mut C,
@@ -173,31 +189,35 @@ impl<'a, C> Repl<'a, C> {
         let input = self.buffer.to_string();
         let input = input.as_str();
 
-        fn until_space_or_end(s: &str) -> IResult<&str, &str> {
-            space0(s)
-        }
-
-        let (cmd, rest) = match until_space_or_end(input) {
+        // TODO (Techassi): Introduce standalone args and kv args
+        let res = match parse(input, &self.commands) {
             Ok(res) => res,
-            Err(_) => todo!(),
-        };
-
-        let cmd_output = match self.commands.get(cmd) {
-            Some(cmd) => cmd.run(self.context),
-            None => {
+            Err(_) => {
+                self.output = "Invalid number of args".into();
                 self.buffer.clear();
-                "".into()
+                self.display_input()?;
+                self.newline()?;
+                return Ok(());
             }
         };
 
-        self.output.push_str(&cmd_output);
-
-        self.display_input()?;
-        self.newline()?;
+        self.output = match res {
+            (Some(cmd), args) => {
+                if !cmd.parse_args(args) {
+                    "Invalid arguments".into()
+                } else {
+                    cmd.run(self.context)
+                }
+            }
+            _ => "Unknown command".into(),
+        };
 
         // Clear the current input buffer after parsing the
         // inpput and executing any matched commands.
         self.buffer.clear();
+
+        self.display_input()?;
+        self.newline()?;
 
         Ok(())
     }
@@ -254,4 +274,45 @@ impl<'a, C> Repl<'a, C> {
 
         Ok(())
     }
+}
+
+fn parse<'a, C>(
+    input: &'a str,
+    commands: &'a HashMap<String, Command<'a, C>>,
+) -> Result<(Option<&'a Command<'a, C>>, Vec<(&'a str, &'a str)>), ParserError> {
+    let mut input = input;
+
+    let mut cmds = commands;
+    let mut cmd = None;
+
+    loop {
+        let (part, rest) = match input.split_once(' ') {
+            Some(split) => split,
+            None => (input, ""),
+        };
+
+        if let Some(c) = cmds.get(part) {
+            cmds = &c.sub;
+            cmd = Some(c);
+            input = rest;
+            continue;
+        }
+
+        break;
+    }
+
+    if cmd.is_none() {
+        return Ok((None, vec![]));
+    }
+
+    let (_, args) = match arg_pair_parser(input) {
+        Ok(pairs) => pairs,
+        Err(_) => return Err(ParserError::InvalidArgs),
+    };
+
+    Ok((cmd, args))
+}
+
+fn arg_pair_parser(input: &str) -> IResult<&str, Vec<(&str, &str)>> {
+    many0(separated_pair(alpha1, cut(char(' ')), cut(alphanumeric1)))(input)
 }

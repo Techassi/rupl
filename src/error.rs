@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-use crate::{buffer::BufferError, ArgError};
+use crate::{buffer::BufferError, ArgError, ParserError};
 
 pub type ReplResult<T> = std::result::Result<T, ReplError>;
 
@@ -20,4 +20,7 @@ pub enum ReplError {
 
     #[error("Buffer error: {0}")]
     BufferError(#[from] BufferError),
+
+    #[error("Parser error: {0}")]
+    ParserError(#[from] ParserError),
 }

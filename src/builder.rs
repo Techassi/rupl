@@ -5,7 +5,7 @@ use termion::raw::IntoRawMode;
 use crate::{buffer::CursorBuffer, Command, Repl};
 
 pub struct ReplBuilder<'a, C> {
-    commands: HashMap<&'a str, Command<'a, C>>,
+    commands: HashMap<String, Command<'a, C>>,
     ignore_empty_line: bool,
     welcome_message: String,
     output_prompt: String,
@@ -154,7 +154,7 @@ impl<'a, C> ReplBuilder<'a, C> {
     /// repl.run();
     /// ```
     pub fn with_command(mut self, command: Command<'a, C>) -> Self {
-        self.commands.insert(command.name(), command);
+        self.commands.insert(command.name().clone(), command);
         self
     }
 
