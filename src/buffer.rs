@@ -164,3 +164,58 @@ impl CursorBuffer {
         }
     }
 }
+
+#[derive(Debug, Default)]
+pub struct OutputBuffer {
+    prefix: String,
+    suffix: String,
+    buffer: String,
+}
+
+impl OutputBuffer {
+    pub fn new(prefix: String, suffix: String) -> Self {
+        Self {
+            prefix,
+            suffix,
+            ..Default::default()
+        }
+    }
+
+    pub fn add_to_buffer<T: AsRef<str>>(&mut self, output: T) {
+        self.buffer.push_str(output.as_ref())
+    }
+
+    pub fn output(&self, clear_line: bool, cursor_position: usize) -> String {
+        let mut output = String::new();
+
+        // Optionally clear current line
+        if clear_line {
+            output.push_str(&format!("{}\r", termion::clear::CurrentLine))
+        }
+
+        // Add prefix
+        output.push_str(&self.prefix);
+
+        // Write current output buffer to final output string
+        output.push_str(&self.buffer);
+
+        // Add suffix
+        output.push_str(&self.suffix);
+
+        // Position the cursor correctly again
+        let diff = self.buffer.len() - cursor_position;
+        if diff != 0 {
+            output.push_str(&termion::cursor::Left(diff as u16).to_string());
+        }
+
+        output
+    }
+
+    pub fn newline(&self) -> String {
+        format!("\r\n{}", self.prefix)
+    }
+
+    pub fn clear(&mut self) {
+        self.buffer.clear()
+    }
+}

@@ -2,7 +2,10 @@ use std::{collections::HashMap, io};
 
 use termion::raw::IntoRawMode;
 
-use crate::{buffer::CursorBuffer, Command, Repl};
+use crate::{
+    buffer::{CursorBuffer, OutputBuffer},
+    Command, Repl,
+};
 
 pub struct ReplBuilder<'a, C> {
     commands: HashMap<String, Command<'a, C>>,
@@ -23,7 +26,7 @@ impl<'a, C> ReplBuilder<'a, C> {
             welcome_message: String::new(),
             output_prompt: String::new(),
             exit_message: String::new(),
-            prompt: String::from(">>"),
+            prompt: String::from(">> "),
             commands: HashMap::new(),
             ignore_empty_line: true,
             use_builtins: true,
@@ -118,15 +121,11 @@ impl<'a, C> ReplBuilder<'a, C> {
     /// ```no_run
     /// let repl = Repl::builder(()).with_output_prompt(Some("#"));
     /// ```
-    pub fn with_output_prompt<P>(mut self, prompt: Option<P>) -> Self
+    pub fn with_output_prompt<P>(mut self, prompt: P) -> Self
     where
         P: Into<String>,
     {
-        match prompt {
-            Some(prompt) => self.output_prompt = prompt.into().trim_end().to_string() + " ",
-            None => self.output_prompt = self.prompt.clone(),
-        }
-
+        self.output_prompt = prompt.into().trim_end().to_string() + " ";
         self
     }
 
@@ -187,16 +186,10 @@ impl<'a, C> ReplBuilder<'a, C> {
         let stdout = io::stdout().into_raw_mode().unwrap();
 
         Repl {
-            // commands: self.commands,
-            // ignore_empty_line: self.ignore_empty_line,
-            // welcome_message: self.welcome_message,
-            // output_prompt: self.output_prompt,
-            // exit_message: self.exit_message,
-            // use_builtins: self.use_builtins,
-            // version: self.version,
+            stdout_output: OutputBuffer::new(self.output_prompt, "".into()),
+            stdin_output: OutputBuffer::new(self.prompt, "".into()),
             buffer: CursorBuffer::new(),
             commands: self.commands,
-            output: String::new(),
             context: self.context,
             stdout,
         }

@@ -41,9 +41,10 @@ pub enum ParserError {
 pub struct Repl<'a, C> {
     commands: HashMap<String, Command<'a, C>>,
     stdout: RawTerminal<Stdout>,
+    stdout_output: OutputBuffer,
+    stdin_output: OutputBuffer,
     buffer: CursorBuffer,
     context: &'a mut C,
-    output: String,
 }
 
 impl<'a, C> Repl<'a, C> {
@@ -129,7 +130,7 @@ impl<'a, C> Repl<'a, C> {
         }
 
         let _ = self.buffer.remove_one(Direction::Left)?;
-        self.display_input()
+        self.display_stdin()
     }
 
     fn handle_left_key(&mut self) -> ReplResult<()> {
@@ -162,7 +163,7 @@ impl<'a, C> Repl<'a, C> {
             '\t' => self.handle_tab_key(),
             _ => {
                 self.buffer.insert(&[c])?;
-                self.display_input()?;
+                self.display_stdin()?;
                 Ok(())
             }
         }
@@ -193,30 +194,30 @@ impl<'a, C> Repl<'a, C> {
         let res = match parse(input, &self.commands) {
             Ok(res) => res,
             Err(_) => {
-                self.output = "Invalid number of args".into();
+                self.stdout_output.add_to_buffer("Invalid number of args");
                 self.buffer.clear();
-                self.display_input()?;
+                self.display_stdout()?;
                 self.newline()?;
                 return Ok(());
             }
         };
 
-        self.output = match res {
+        match res {
             (Some(cmd), args) => {
                 if !cmd.parse_args(args) {
-                    "Invalid arguments".into()
+                    self.stdout_output.add_to_buffer("Invalid arguments");
                 } else {
-                    cmd.run(self.context)
+                    self.stdout_output.add_to_buffer(cmd.run(self.context));
                 }
             }
-            _ => "Unknown command".into(),
+            _ => self.stdout_output.add_to_buffer("Unknown command"),
         };
 
         // Clear the current input buffer after parsing the
         // inpput and executing any matched commands.
         self.buffer.clear();
 
-        self.display_input()?;
+        self.display_stdout()?;
         self.newline()?;
 
         Ok(())
@@ -225,32 +226,35 @@ impl<'a, C> Repl<'a, C> {
     /// Displays the user input on stdout. This is achieved by first erasing
     /// the contents of the current line, writing the refreshed input to
     /// stdout, flushing it and then clearing the output buffer.
-    fn display_input(&mut self) -> ReplResult<()> {
-        // Erase entire line and go back to start of line
-        self.output.insert_str(0, "\x1B[2K\r");
-
+    fn display_stdin(&mut self) -> ReplResult<()> {
         // Append current input buffer, write to stdout
-        self.output.push_str(self.buffer.to_string().as_str());
-        write!(self.stdout, "{}", self.output)?;
-
-        // Position the cursor correctly again
-        let diff = self.buffer.len() - self.buffer.get_pos();
-        if diff != 0 {
-            write!(self.stdout, "{}", termion::cursor::Left(diff as u16))?;
-        }
+        self.stdin_output.add_to_buffer(self.buffer.to_string());
+        write!(
+            self.stdout,
+            "{}",
+            self.stdin_output.output(true, self.buffer.get_pos())
+        )?;
 
         // Flush and clear current output
         self.stdout.flush()?;
-        self.output.clear();
+        self.stdin_output.clear();
 
         Ok(())
     }
 
-    fn display_output() {}
+    fn display_stdout(&mut self) -> ReplResult<()> {
+        write!(self.stdout, "{}", self.stdout_output.output(true, 0))?;
+
+        self.stdout.flush()?;
+        self.stdout_output.clear();
+
+        Ok(())
+    }
 
     /// Inserts a newline into stdout
     fn newline(&mut self) -> ReplResult<()> {
-        Ok(write!(self.stdout, "\r\n")?)
+        write!(self.stdout, "{}", self.stdin_output.newline())?;
+        Ok(self.stdout.flush()?)
     }
 
     /// Moves the cursor left. This moves the cursor in the
