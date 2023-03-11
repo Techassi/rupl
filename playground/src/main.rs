@@ -1,39 +1,48 @@
-use rupl::{Arg, Command, FnContext, Repl, ReplResult};
+use rupl::{command::Command, error::ReplResult, Repl};
+
+struct Ctx {
+    counter: usize,
+}
 
 fn main() -> ReplResult<()> {
-    let mut repl = Repl::builder(())
-        .with_prompt(">>")
-        .with_version("1.0.1-rc2")
-        .with_welcome_message("This basic REPL says 'Hello, world!'")
-        .with_exit_message("Exiting... Bye!")
-        .with_builtins(true)
-        .ignore_empty_line(true)
-        .with_output_prompt(Some(""))
+    let mut context = Ctx { counter: 0 };
+
+    let mut repl = Repl::<_>::builder(&mut context)
         .with_command(
-            Command::new("hello", hello)
-                .with_arg(Arg::new("name"))
-                .with_arg(Arg::new("end")),
+            Command::new("service", service)
+                .with_subcommand(Command::new("dns", service_dns))
+                .with_arg("name"),
         )
-        .with_command(
-            Command::new("bye", bye)
-                .with_arg(Arg::new("name"))
-                .with_arg(Arg::new("end")),
-        )
+        // .with_prompt(">>")
+        // .with_version("1.0.1-rc2")
+        // .with_welcome_message("This basic REPL says 'Hello, world!'")
+        // .with_exit_message("Exiting... Bye!")
+        // .with_builtins(true)
+        // .ignore_empty_line(true)
+        // .with_output_prompt(Some(""))
+        // .with_command(
+        //     Command::new("hello", hello)
+        //         .with_arg(Arg::new("name"))
+        //         .with_arg(Arg::new("end")),
+        // )
+        // .with_command(
+        //     Command::new("bye", bye)
+        //         .with_arg(Arg::new("name"))
+        //         .with_arg(Arg::new("end")),
+        // )
         .build();
 
     repl.run()
 }
 
-fn hello(ctx: FnContext<()>) -> ReplResult<Option<String>> {
-    let name: String = ctx.args().get("name")?;
-    let end: String = ctx.args().get("end")?;
+fn service(ctx: &mut Ctx) -> String {
+    ctx.counter += 1;
 
-    Ok(Some(format!("Hello, {}{}", name, end)))
+    format!("Hello from service {}", ctx.counter)
 }
 
-fn bye(ctx: FnContext<()>) -> ReplResult<Option<String>> {
-    let name: String = ctx.args().get("name")?;
-    let end: String = ctx.args().get("end")?;
+fn service_dns(ctx: &mut Ctx) -> String {
+    ctx.counter += 1;
 
-    Ok(Some(format!("Bye, {}{}", name, end)))
+    "Hello from service_dns".into()
 }
