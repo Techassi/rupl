@@ -17,17 +17,12 @@ pub mod args;
 pub mod buffer;
 pub mod builder;
 pub mod command;
-pub mod context;
 pub mod error;
 
-use args::*;
 use buffer::*;
 use builder::*;
 use command::*;
-use context::*;
 use error::*;
-
-pub type RunFn<C> = fn(FnContext<C>) -> std::result::Result<Option<String>, ReplError>;
 
 #[derive(Debug, Error)]
 pub enum ParserError {
@@ -38,16 +33,16 @@ pub enum ParserError {
     InvalidArgs,
 }
 
-pub struct Repl<'a, C> {
-    commands: HashMap<String, Command<'a, C>>,
+pub struct Repl<'a, S> {
+    commands: HashMap<String, Command<S>>,
     stdout: RawTerminal<Stdout>,
     stdout_output: OutputBuffer,
     stdin_output: OutputBuffer,
     buffer: CursorBuffer,
-    context: &'a mut C,
+    state: &'a mut S,
 }
 
-impl<'a, C> Repl<'a, C> {
+impl<'a, S> Repl<'a, S> {
     /// Creates a new default REPL with a context.
     ///
     /// ### Example
@@ -56,7 +51,7 @@ impl<'a, C> Repl<'a, C> {
     /// let mut repl = Repl::new(());
     /// repl.run();
     /// ```
-    pub fn new(context: &'a mut C) -> Self {
+    pub fn new(context: &'a mut S) -> Self {
         Self::builder(context).build()
     }
 
@@ -72,8 +67,15 @@ impl<'a, C> Repl<'a, C> {
     ///
     /// repl.run();
     /// ```
-    pub fn builder(context: &'a mut C) -> ReplBuilder<'a, C> {
+    pub fn builder(context: &'a mut S) -> ReplBuilder<'a, S> {
         ReplBuilder::new(context)
+    }
+
+    /// List all commands in alphabetical order.
+    pub fn list_commands(&self) -> Vec<&String> {
+        let mut cmds: Vec<_> = self.commands.keys().collect();
+        cmds.sort_by(|a, b| a.cmp(b));
+        cmds
     }
 
     /// Runs the REPL. This will block until the user exists the REPL with
@@ -207,7 +209,7 @@ impl<'a, C> Repl<'a, C> {
                 if !cmd.parse_args(args) {
                     self.stdout_output.add_to_buffer("Invalid arguments");
                 } else {
-                    self.stdout_output.add_to_buffer(cmd.run(self.context));
+                    self.stdout_output.add_to_buffer(cmd.run(self.state));
                 }
             }
             _ => self.stdout_output.add_to_buffer("Unknown command"),
@@ -282,8 +284,8 @@ impl<'a, C> Repl<'a, C> {
 
 fn parse<'a, C>(
     input: &'a str,
-    commands: &'a HashMap<String, Command<'a, C>>,
-) -> Result<(Option<&'a Command<'a, C>>, Vec<(&'a str, &'a str)>), ParserError> {
+    commands: &'a HashMap<String, Command<C>>,
+) -> Result<(Option<&'a Command<C>>, Vec<(&'a str, &'a str)>), ParserError> {
     let mut input = input;
 
     let mut cmds = commands;

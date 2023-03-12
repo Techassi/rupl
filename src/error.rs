@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-use crate::{buffer::BufferError, ArgError, ParserError};
+use crate::{buffer::BufferError, ParserError};
 
 pub type ReplResult<T> = std::result::Result<T, ReplError>;
 
@@ -12,9 +12,8 @@ pub enum ReplError {
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
 
-    #[error("Parameter error: {0}")]
-    ArgError(#[from] ArgError),
-
+    // #[error("Parameter error: {0}")]
+    // ArgError(#[from] ArgError),
     #[error("No such command: {0}")]
     NoSuchCommandError(String),
 

@@ -7,20 +7,20 @@ use crate::{
     Command, Repl,
 };
 
-pub struct ReplBuilder<'a, C> {
-    commands: HashMap<String, Command<'a, C>>,
+pub struct ReplBuilder<'a, S> {
+    commands: HashMap<String, Command<S>>,
     ignore_empty_line: bool,
     welcome_message: String,
     output_prompt: String,
     exit_message: String,
     use_builtins: bool,
-    context: &'a mut C,
+    state: &'a mut S,
     version: String,
     prompt: String,
 }
 
-impl<'a, C> ReplBuilder<'a, C> {
-    pub fn new(context: &'a mut C) -> Self {
+impl<'a, S> ReplBuilder<'a, S> {
+    pub fn new(state: &'a mut S) -> Self {
         Self {
             version: String::from(env!("CARGO_PKG_VERSION")),
             welcome_message: String::new(),
@@ -30,7 +30,7 @@ impl<'a, C> ReplBuilder<'a, C> {
             commands: HashMap::new(),
             ignore_empty_line: true,
             use_builtins: true,
-            context,
+            state,
         }
     }
 
@@ -152,7 +152,7 @@ impl<'a, C> ReplBuilder<'a, C> {
     ///
     /// repl.run();
     /// ```
-    pub fn with_command(mut self, command: Command<'a, C>) -> Self {
+    pub fn with_command(mut self, command: Command<S>) -> Self {
         self.commands.insert(command.name().clone(), command);
         self
     }
@@ -182,7 +182,7 @@ impl<'a, C> ReplBuilder<'a, C> {
     ///
     /// repl.run();
     /// ```
-    pub fn build(self) -> Repl<'a, C> {
+    pub fn build(self) -> Repl<'a, S> {
         let stdout = io::stdout().into_raw_mode().unwrap();
 
         Repl {
@@ -190,7 +190,7 @@ impl<'a, C> ReplBuilder<'a, C> {
             stdin_output: OutputBuffer::new(self.prompt, "".into()),
             buffer: CursorBuffer::new(),
             commands: self.commands,
-            context: self.context,
+            state: self.state,
             stdout,
         }
     }

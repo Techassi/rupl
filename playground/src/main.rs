@@ -5,44 +5,28 @@ struct Ctx {
 }
 
 fn main() -> ReplResult<()> {
-    let mut context = Ctx { counter: 0 };
+    let mut state = ();
 
-    let mut repl = Repl::<_>::builder(&mut context)
+    let mut repl = Repl::<_>::builder(&mut state)
         .with_prompt(">>")
         .with_output_prompt("#")
         .with_command(
-            Command::new("service", service)
-                .with_subcommand(Command::new("dns", service_dns))
-                .with_arg("name"),
+            Command::new("service", service).with_subcommand(
+                Command::new("dns", service_dns)
+                    .with_subcommand(Command::new("status", service_dns))
+                    .with_arg("port", false)
+                    .with_arg("mode", false),
+            ),
         )
-        // .with_version("1.0.1-rc2")
-        // .with_welcome_message("This basic REPL says 'Hello, world!'")
-        // .with_exit_message("Exiting... Bye!")
-        // .with_builtins(true)
-        // .ignore_empty_line(true)
-        // .with_command(
-        //     Command::new("hello", hello)
-        //         .with_arg(Arg::new("name"))
-        //         .with_arg(Arg::new("end")),
-        // )
-        // .with_command(
-        //     Command::new("bye", bye)
-        //         .with_arg(Arg::new("name"))
-        //         .with_arg(Arg::new("end")),
-        // )
         .build();
 
     repl.run()
 }
 
-fn service(ctx: &mut Ctx) -> String {
-    ctx.counter += 1;
-
-    format!("Hello from service {}", ctx.counter)
+fn service(ctx: &mut ()) -> String {
+    "Hello from service".into()
 }
 
-fn service_dns(ctx: &mut Ctx) -> String {
-    ctx.counter += 1;
-
+fn service_dns(ctx: &mut ()) -> String {
     "Hello from service_dns".into()
 }
